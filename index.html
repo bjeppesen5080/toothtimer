@@ -8,6 +8,7 @@
         :root {
             --primary: #007AFF;
             --success: #34C759;
+            --warning: #FF9500;
             --background: #f5f5f7;
         }
         body {
@@ -33,7 +34,6 @@
             box-sizing: border-box;
         }
         .btn {
-            background: var(--primary);
             color: white;
             border: none;
             padding: 14px 24px;
@@ -41,14 +41,24 @@
             font-weight: 600;
             border-radius: 12px;
             cursor: pointer;
-            width: 100%;
-            margin-top: 15px;
             transition: opacity 0.2s;
         }
-        .btn:disabled { background: #aeaeae; }
+        .btn-primary { background: var(--primary); width: 100%; margin-top: 15px; }
+        .btn-primary:disabled { background: #aeaeae; }
         .btn-danger { background: #FF3B30; }
+        .btn-warning { background: var(--warning); }
         .btn-success { background: var(--success); }
         
+        /* Button row for the timer screen */
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            width: 340px;
+            margin-top: 15px;
+        }
+        .btn-row .btn { flex: 1; }
+        .btn-full { width: 340px; margin-top: 15px; }
+
         input[type="file"] { display: none; }
         .file-label {
             display: block;
@@ -81,7 +91,6 @@
             margin: 5px 0;
         }
         
-        /* LARGER GAME ARENA FOR THE REVEAL PHOTO */
         #game-container {
             position: relative;
             width: 340px; 
@@ -139,7 +148,7 @@
             <input type="range" id="duration-slider" min="20" max="180" step="10" value="120">
         </div>
 
-        <button id="start-btn" class="btn" disabled>Ready, Set, Brush! 🪥</button>
+        <button id="start-btn" class="btn btn-primary" disabled>Ready, Set, Brush! 🪥</button>
     </div>
 
     <div id="timer-screen" style="display: none;">
@@ -150,7 +159,12 @@
             <div id="grid-overlay"></div>
         </div>
 
-        <button id="reset-btn" class="btn btn-danger" style="width: 340px;">Stop / Reset</button>
+        <div id="control-buttons" class="btn-row">
+            <button id="pause-btn" class="btn btn-warning">Pause ⏸️</button>
+            <button id="reset-btn" class="btn btn-danger">Reset 🔄</button>
+        </div>
+        
+        <button id="finish-btn" class="btn btn-success btn-full" style="display: none;">Finish ✨</button>
     </div>
 
     <audio id="bg-music" loop src="background_music.mp3" preload="auto"></audio>
@@ -169,7 +183,10 @@
         const gameContainer = document.getElementById('game-container');
         const rewardImage = document.getElementById('reward-image');
         const gridOverlay = document.getElementById('grid-overlay');
+        const pauseBtn = document.getElementById('pause-btn');
         const resetBtn = document.getElementById('reset-btn');
+        const finishBtn = document.getElementById('finish-btn');
+        const controlButtons = document.getElementById('control-buttons');
         const bgMusic = document.getElementById('bg-music');
         const winSfx = document.getElementById('win-sfx');
 
@@ -177,6 +194,7 @@
         let timeRemaining = 120;
         let countdownInterval;
         let tileOrder = [];
+        let isPaused = false;
 
         durationSlider.addEventListener('input', (e) => {
             totalTime = parseInt(e.target.value);
@@ -214,6 +232,12 @@
 
         function startSession() {
             timeRemaining = totalTime;
+            isPaused = false;
+            pauseBtn.innerText = "Pause ⏸️";
+            pauseBtn.className = "btn btn-warning";
+            controlButtons.style.display = "flex";
+            finishBtn.style.display = "none";
+            
             buildGrid();
             updateTimerDisplay();
             
@@ -221,15 +245,14 @@
             timerScreen.style.display = 'block';
             gameContainer.style.display = 'block';
 
-            // Explicit user interaction audio unlock
             bgMusic.load();
             winSfx.load();
-            
-            var playPromise = bgMusic.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(error => { console.log("Audio block:", error); });
-            }
+            bgMusic.play().catch(e => console.log("Audio block:", e));
 
+            startTimerInterval();
+        }
+
+        function startTimerInterval() {
             countdownInterval = setInterval(() => {
                 timeRemaining--;
                 updateTimerDisplay();
@@ -240,6 +263,27 @@
                     handleSuccess();
                 }
             }, 1000);
+        }
+
+        // NEW PAUSE LOGIC
+        function togglePause() {
+            if (!isPaused) {
+                // Pause the countdown and the music
+                clearInterval(countdownInterval);
+                bgMusic.pause();
+                isPaused = true;
+                pauseBtn.innerText = "Resume ▶️";
+                pauseBtn.className = "btn btn-success";
+                timerText.style.color = "var(--warning)";
+            } else {
+                // Resume the countdown and the music
+                isPaused = false;
+                pauseBtn.innerText = "Pause ⏸️";
+                pauseBtn.className = "btn btn-warning";
+                timerText.style.color = "var(--primary)";
+                bgMusic.play().catch(e => console.log(e));
+                startTimerInterval();
+            }
         }
 
         function updateTimerDisplay() {
@@ -267,9 +311,12 @@
             timerText.innerText = "All Clean! ✨";
             timerText.style.color = "var(--success)";
             document.querySelectorAll('.tile').forEach(t => t.classList.add('hidden'));
+            
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-            resetBtn.innerText = "Finish";
-            resetBtn.className = "btn btn-success";
+            
+            // Swap control buttons out for a single clean Finish button
+            controlButtons.style.display = "none";
+            finishBtn.style.display = "block";
         }
 
         function resetSession() {
@@ -279,14 +326,14 @@
             winSfx.pause();
             winSfx.currentTime = 0;
             timerText.style.color = "var(--primary)";
-            resetBtn.innerText = "Stop / Reset";
-            resetBtn.className = "btn btn-danger";
             timerScreen.style.display = 'none';
             setupScreen.style.display = 'block';
         }
 
         startBtn.addEventListener('click', startSession);
+        pauseBtn.addEventListener('click', togglePause);
         resetBtn.addEventListener('click', resetSession);
+        finishBtn.addEventListener('click', resetSession);
     </script>
 </body>
 </html>
