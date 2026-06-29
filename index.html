@@ -49,7 +49,6 @@
         .btn-warning { background: var(--warning); }
         .btn-success { background: var(--success); }
         
-        /* Button row for the timer screen */
         .btn-row {
             display: flex;
             gap: 10px;
@@ -63,20 +62,30 @@
         .file-label {
             display: block;
             border: 2px dashed var(--primary);
-            padding: 30px 10px;
+            padding: 25px 10px;
             border-radius: 12px;
             color: var(--primary);
             cursor: pointer;
             font-weight: 500;
             margin-bottom: 15px;
         }
-        .preview-thumb {
-            max-width: 100%;
-            max-height: 150px;
-            border-radius: 8px;
+        
+        /* Thumbnail Strip Layout */
+        .thumb-container {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
             margin-top: 10px;
-            display: none;
         }
+        .thumb-img {
+            width: 55px;
+            height: 55px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 2px solid var(--primary);
+        }
+
         .slider-group {
             text-align: left;
             margin: 15px 0;
@@ -121,7 +130,7 @@
             justify-content: center;
             color: rgba(255,255,255,0.5);
             font-size: 24px;
-            transition: opacity 0.6s ease, transform 0.6s ease;
+            transition: opacity 0.4s ease, transform 0.4s ease;
         }
         .tile.hidden {
             opacity: 0;
@@ -135,13 +144,13 @@
 
     <div id="setup-screen" class="card">
         <h2>Tooth Brushing Setup</h2>
-        <p style="color: #666; font-size:14px;">Select a surprise reward picture</p>
+        <p style="color: #666; font-size:14px;">Select 1 to 5 surprise reward pictures</p>
         
         <label for="photo-input" class="file-label" id="upload-box">
-            <span id="upload-text">📸 Tap to Choose Reward Photo</span>
-            <img id="preview" class="preview-thumb" alt="Preview">
+            <span id="upload-text">📸 Tap to Choose Reward Photos</span>
+            <div id="thumb-strip" class="thumb-container"></div>
         </label>
-        <input type="file" id="photo-input" accept="image/*">
+        <input type="file" id="photo-input" accept="image/*" multiple>
 
         <div class="slider-group">
             <label id="duration-label">Timer Duration: 120 seconds</label>
@@ -160,7 +169,7 @@
         </div>
 
         <div id="control-buttons" class="btn-row">
-            <button id="pause-btn" class="btn btn-warning">Pause ⏸️</button>
+            <button id="pause-btn" class="btn btn-success">Start ▶️</button>
             <button id="reset-btn" class="btn btn-danger">Reset 🔄</button>
         </div>
         
@@ -171,8 +180,18 @@
     <audio id="win-sfx" src="success_sound.mp3" preload="auto"></audio>
 
     <script>
+        // CACHE-BUSTING ENGINE (v1.2)
+        (function() {
+            const currentVersion = "v1.2"; 
+            const storedVersion = localStorage.getItem("app_version");
+            if (storedVersion !== currentVersion) {
+                localStorage.setItem("app_version", currentVersion);
+                window.location.reload(true); 
+            }
+        })();
+
         const photoInput = document.getElementById('photo-input');
-        const preview = document.getElementById('preview');
+        const thumbStrip = document.getElementById('thumb-strip');
         const uploadText = document.getElementById('upload-text');
         const durationSlider = document.getElementById('duration-slider');
         const durationLabel = document.getElementById('duration-label');
@@ -194,6 +213,13 @@
         let timeRemaining = 120;
         let countdownInterval;
         let tileOrder = [];
+        
+        // State management modifications
+        let imageArray = []; 
+        let currentImageIndex = 0;
+        let timePerImage = 0;
+        let elapsedForCurrentImage = 0;
+        let isTimerActive = false; 
         let isPaused = false;
 
         durationSlider.addEventListener('input', (e) => {
@@ -201,18 +227,29 @@
             durationLabel.innerText = `Timer Duration: ${totalTime} seconds`;
         });
 
+        // Handle picking multiple files securely
         photoInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    preview.src = event.target.result;
-                    preview.style.display = 'block';
-                    rewardImage.src = event.target.result;
-                    uploadText.style.display = 'none';
-                    startBtn.disabled = false;
-                }
-                reader.readAsDataURL(file);
+            const files = Array.from(e.target.files).slice(0, 5); // Limit max array intake to 5 items
+            imageArray = [];
+            thumbStrip.innerHTML = '';
+            
+            if (files.length > 0) {
+                uploadText.style.display = 'none';
+                startBtn.disabled = false;
+                
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        imageArray.push(event.target.result);
+                        
+                        // Construct small preview thumbnail item
+                        const img = document.createElement('img');
+                        img.src = event.target.result;
+                        img.className = 'thumb-img';
+                        thumbStrip.appendChild(img);
+                    }
+                    reader.readAsDataURL(file);
+                });
             }
         });
 
@@ -230,14 +267,25 @@
             tileOrder.sort(() => Math.random() - 0.5);
         }
 
-        function startSession() {
+        // Moves to the countdown interface screen but keeps things unstarted
+        function prepareBrushingSession() {
             timeRemaining = totalTime;
+            currentImageIndex = 0;
+            elapsedForCurrentImage = 0;
+            
+            // Slice the global time slider choice across all collected picture files evenly
+            timePerImage = totalTime / imageArray.length;
+            
+            isTimerActive = false;
             isPaused = false;
-            pauseBtn.innerText = "Pause ⏸️";
-            pauseBtn.className = "btn btn-warning";
+            
+            pauseBtn.innerText = "Start ▶️";
+            pauseBtn.className = "btn btn-success";
             controlButtons.style.display = "flex";
             finishBtn.style.display = "none";
+            timerText.style.color = "var(--primary)";
             
+            rewardImage.src = imageArray[currentImageIndex];
             buildGrid();
             updateTimerDisplay();
             
@@ -247,28 +295,18 @@
 
             bgMusic.load();
             winSfx.load();
-            bgMusic.play().catch(e => console.log("Audio block:", e));
-
-            startTimerInterval();
         }
 
-        function startTimerInterval() {
-            countdownInterval = setInterval(() => {
-                timeRemaining--;
-                updateTimerDisplay();
-                revealTilesBasedOnProgress();
-
-                if (timeRemaining <= 0) {
-                    clearInterval(countdownInterval);
-                    handleSuccess();
-                }
-            }, 1000);
-        }
-
-        // NEW PAUSE LOGIC
-        function togglePause() {
-            if (!isPaused) {
-                // Pause the countdown and the music
+        function handlePlaybackToggle() {
+            if (!isTimerActive) {
+                // INITIAL START
+                isTimerActive = true;
+                pauseBtn.innerText = "Pause ⏸️";
+                pauseBtn.className = "btn btn-warning";
+                bgMusic.play().catch(e => console.log(e));
+                startTimerInterval();
+            } else if (!isPaused) {
+                // LIVE PAUSE ACTION TRIGGER
                 clearInterval(countdownInterval);
                 bgMusic.pause();
                 isPaused = true;
@@ -276,7 +314,7 @@
                 pauseBtn.className = "btn btn-success";
                 timerText.style.color = "var(--warning)";
             } else {
-                // Resume the countdown and the music
+                // RESUME ACTION TRIGGER
                 isPaused = false;
                 pauseBtn.innerText = "Pause ⏸️";
                 pauseBtn.className = "btn btn-warning";
@@ -286,6 +324,28 @@
             }
         }
 
+        function startTimerInterval() {
+            countdownInterval = setInterval(() => {
+                timeRemaining--;
+                elapsedForCurrentImage++;
+                updateTimerDisplay();
+                revealTilesBasedOnProgress();
+
+                if (timeRemaining <= 0) {
+                    clearInterval(countdownInterval);
+                    handleSuccess();
+                } else if (elapsedForCurrentImage >= timePerImage) {
+                    // Time block achieved for current slice image: swap forward to next photo item!
+                    elapsedForCurrentImage = 0;
+                    currentImageIndex++;
+                    if (currentImageIndex < imageArray.length) {
+                        rewardImage.src = imageArray[currentImageIndex];
+                        buildGrid(); // Re-mask screen for fresh target
+                    }
+                }
+            }, 1000);
+        }
+
         function updateTimerDisplay() {
             const mins = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
             const secs = (timeRemaining % 60).toString().padStart(2, '0');
@@ -293,8 +353,9 @@
         }
 
         function revealTilesBasedOnProgress() {
-            const progress = 1 - (timeRemaining / totalTime);
-            const expectedTilesToReveal = Math.floor(progress * 9);
+            // Check progression percentage relative to individual image duration block
+            const imageProgress = elapsedForCurrentImage / timePerImage;
+            const expectedTilesToReveal = Math.floor(imageProgress * 9);
             for(let i = 0; i < expectedTilesToReveal; i++) {
                 const tileIndex = tileOrder[i];
                 const tile = document.getElementById(`tile-${tileIndex}`);
@@ -305,8 +366,7 @@
         function handleSuccess() {
             bgMusic.pause();
             bgMusic.currentTime = 0;
-            
-            winSfx.play().catch(e => console.log("SFX error:", e));
+            winSfx.play().catch(e => console.log(e));
             
             timerText.innerText = "All Clean! ✨";
             timerText.style.color = "var(--success)";
@@ -314,7 +374,6 @@
             
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
             
-            // Swap control buttons out for a single clean Finish button
             controlButtons.style.display = "none";
             finishBtn.style.display = "block";
         }
@@ -330,8 +389,8 @@
             setupScreen.style.display = 'block';
         }
 
-        startBtn.addEventListener('click', startSession);
-        pauseBtn.addEventListener('click', togglePause);
+        startBtn.addEventListener('click', prepareBrushingSession);
+        pauseBtn.addEventListener('click', handlePlaybackToggle);
         resetBtn.addEventListener('click', resetSession);
         finishBtn.addEventListener('click', resetSession);
     </script>
