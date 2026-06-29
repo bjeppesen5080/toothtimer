@@ -70,7 +70,6 @@
             margin-bottom: 15px;
         }
         
-        /* Thumbnail Strip Layout */
         .thumb-container {
             display: flex;
             gap: 8px;
@@ -97,6 +96,15 @@
             font-size: 54px;
             font-weight: 800;
             color: var(--primary);
+            margin: 5px 0;
+        }
+        
+        /* Parent Notice Banner */
+        #status-notice {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--success);
+            height: 24px;
             margin: 5px 0;
         }
         
@@ -163,6 +171,8 @@
     <div id="timer-screen" style="display: none;">
         <div id="timer-text">02:00</div>
         
+        <div id="status-notice"></div>
+        
         <div id="game-container">
             <img id="reward-image" alt="Reward Target">
             <div id="grid-overlay"></div>
@@ -180,9 +190,9 @@
     <audio id="win-sfx" src="success_sound.mp3" preload="auto"></audio>
 
     <script>
-        // CACHE-BUSTING ENGINE (v1.2)
+        // CACHE-BUSTING ENGINE (v1.3)
         (function() {
-            const currentVersion = "v1.2"; 
+            const currentVersion = "v1.3"; 
             const storedVersion = localStorage.getItem("app_version");
             if (storedVersion !== currentVersion) {
                 localStorage.setItem("app_version", currentVersion);
@@ -199,6 +209,7 @@
         const setupScreen = document.getElementById('setup-screen');
         const timerScreen = document.getElementById('timer-screen');
         const timerText = document.getElementById('timer-text');
+        const statusNotice = document.getElementById('status-notice');
         const gameContainer = document.getElementById('game-container');
         const rewardImage = document.getElementById('reward-image');
         const gridOverlay = document.getElementById('grid-overlay');
@@ -214,22 +225,24 @@
         let countdownInterval;
         let tileOrder = [];
         
-        // State management modifications
         let imageArray = []; 
         let currentImageIndex = 0;
         let timePerImage = 0;
         let elapsedForCurrentImage = 0;
         let isTimerActive = false; 
         let isPaused = false;
+        
+        // New structural tracking state
+        let isCelebratingPause = false;
+        let celebrationTimeLeft = 0;
 
         durationSlider.addEventListener('input', (e) => {
             totalTime = parseInt(e.target.value);
             durationLabel.innerText = `Timer Duration: ${totalTime} seconds`;
         });
 
-        // Handle picking multiple files securely
         photoInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files).slice(0, 5); // Limit max array intake to 5 items
+            const files = Array.from(e.target.files).slice(0, 5); 
             imageArray = [];
             thumbStrip.innerHTML = '';
             
@@ -241,8 +254,6 @@
                     const reader = new FileReader();
                     reader.onload = function(event) {
                         imageArray.push(event.target.result);
-                        
-                        // Construct small preview thumbnail item
                         const img = document.createElement('img');
                         img.src = event.target.result;
                         img.className = 'thumb-img';
@@ -267,23 +278,22 @@
             tileOrder.sort(() => Math.random() - 0.5);
         }
 
-        // Moves to the countdown interface screen but keeps things unstarted
         function prepareBrushingSession() {
             timeRemaining = totalTime;
             currentImageIndex = 0;
             elapsedForCurrentImage = 0;
-            
-            // Slice the global time slider choice across all collected picture files evenly
             timePerImage = totalTime / imageArray.length;
             
             isTimerActive = false;
             isPaused = false;
+            isCelebratingPause = false;
             
             pauseBtn.innerText = "Start ▶️";
             pauseBtn.className = "btn btn-success";
             controlButtons.style.display = "flex";
             finishBtn.style.display = "none";
             timerText.style.color = "var(--primary)";
+            statusNotice.innerText = "";
             
             rewardImage.src = imageArray[currentImageIndex];
             buildGrid();
@@ -298,15 +308,16 @@
         }
 
         function handlePlaybackToggle() {
+            // Disable actions during celebration windows so timing cycles don't break
+            if (isCelebratingPause) return; 
+
             if (!isTimerActive) {
-                // INITIAL START
                 isTimerActive = true;
                 pauseBtn.innerText = "Pause ⏸️";
                 pauseBtn.className = "btn btn-warning";
                 bgMusic.play().catch(e => console.log(e));
                 startTimerInterval();
             } else if (!isPaused) {
-                // LIVE PAUSE ACTION TRIGGER
                 clearInterval(countdownInterval);
                 bgMusic.pause();
                 isPaused = true;
@@ -314,7 +325,6 @@
                 pauseBtn.className = "btn btn-success";
                 timerText.style.color = "var(--warning)";
             } else {
-                // RESUME ACTION TRIGGER
                 isPaused = false;
                 pauseBtn.innerText = "Pause ⏸️";
                 pauseBtn.className = "btn btn-warning";
@@ -326,21 +336,38 @@
 
         function startTimerInterval() {
             countdownInterval = setInterval(() => {
-                timeRemaining--;
-                elapsedForCurrentImage++;
-                updateTimerDisplay();
-                revealTilesBasedOnProgress();
-
-                if (timeRemaining <= 0) {
-                    clearInterval(countdownInterval);
-                    handleSuccess();
-                } else if (elapsedForCurrentImage >= timePerImage) {
-                    // Time block achieved for current slice image: swap forward to next photo item!
-                    elapsedForCurrentImage = 0;
-                    currentImageIndex++;
-                    if (currentImageIndex < imageArray.length) {
+                if (isCelebratingPause) {
+                    // Celebration core text display iteration
+                    celebrationTimeLeft--;
+                    statusNotice.innerText = `Next picture in ${celebrationTimeLeft}...`;
+                    
+                    if (celebrationTimeLeft <= 0) {
+                        // End interstitial window, cycle layout forward
+                        isCelebratingPause = false;
+                        statusNotice.innerText = "";
+                        currentImageIndex++;
                         rewardImage.src = imageArray[currentImageIndex];
-                        buildGrid(); // Re-mask screen for fresh target
+                        buildGrid();
+                    }
+                } else {
+                    // Standard countdown loop
+                    timeRemaining--;
+                    elapsedForCurrentImage++;
+                    updateTimerDisplay();
+                    revealTilesBasedOnProgress();
+
+                    if (timeRemaining <= 0) {
+                        clearInterval(countdownInterval);
+                        handleSuccess();
+                    } else if (elapsedForCurrentImage >= timePerImage && currentImageIndex < imageArray.length - 1) {
+                        // Trigger the 5-second celebration pause instead of an instant flash swap
+                        isCelebratingPause = true;
+                        celebrationTimeLeft = 5;
+                        elapsedForCurrentImage = 0;
+                        
+                        // Force final tiles clear out for perfect visibility
+                        document.querySelectorAll('.tile').forEach(t => t.classList.add('hidden'));
+                        statusNotice.innerText = `Next picture in ${celebrationTimeLeft}...`;
                     }
                 }
             }, 1000);
@@ -353,7 +380,6 @@
         }
 
         function revealTilesBasedOnProgress() {
-            // Check progression percentage relative to individual image duration block
             const imageProgress = elapsedForCurrentImage / timePerImage;
             const expectedTilesToReveal = Math.floor(imageProgress * 9);
             for(let i = 0; i < expectedTilesToReveal; i++) {
@@ -370,6 +396,7 @@
             
             timerText.innerText = "All Clean! ✨";
             timerText.style.color = "var(--success)";
+            statusNotice.innerText = "";
             document.querySelectorAll('.tile').forEach(t => t.classList.add('hidden'));
             
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
